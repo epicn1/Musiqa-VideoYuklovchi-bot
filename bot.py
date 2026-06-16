@@ -11,6 +11,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 import yt_dlp
 from shazamio import Shazam
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
 import logging
 from dotenv import load_dotenv
 import database
@@ -112,6 +114,15 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 router = Router()
 shazam = Shazam()
+
+try:
+    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+        client_id=os.getenv("SPOTIFY_CLIENT_ID"),
+        client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
+    ))
+except Exception as e:
+    logger.error(f"Spotify init error: {e}")
+    sp = None
 
 # ========== Cache ==========
 user_languages_cache = {}
@@ -364,18 +375,22 @@ def get_search_keyboard(page, total_results, search_id):
     keyboard.append(nav_buttons)
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-async def search_youtube_videos(query):
+async def search_spotify_tracks(query):
     try:
-        ydl_opts = {
-            'quiet': True,
-            'extract_flat': True,
-            'default_search': 'ytsearch25',
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(query, download=False)
-            return info.get('entries', [])
+        if not sp:
+            return []
+        res = await asyncio.to_thread(sp.search, q=query, type='track', limit=25)
+        tracks = res.get('tracks', {}).get('items', [])
+        results = []
+        for t in tracks:
+            results.append({
+                'title': t.get('name', 'Unknown'),
+                'uploader': t['artists'][0]['name'] if t.get('artists') else 'Unknown',
+                'duration': t.get('duration_ms', 0) // 1000
+            })
+        return results
     except Exception as e:
-        logger.error(f"Search error: {e}")
+        logger.error(f"Spotify search error: {e}")
         return []
 
 # ========== START ==========
@@ -615,7 +630,7 @@ async def handle_text_search(message: Message):
         return
     search_query = message.text.strip()
     processing_msg = await message.answer(get_text(user_id, 'processing'))
-    results = await search_youtube_videos(search_query)
+    results = await search_spotify_tracks(search_query)
     if results:
         search_id = str(uuid.uuid4())[:8]
         search_cache[search_id] = {'query': search_query, 'results': results}
@@ -670,18 +685,12 @@ async def process_download_button(callback: CallbackQuery):
         return
     await callback.answer()
     selected_song = data['results'][index]
-    video_url = selected_song.get('url')
-    if not video_url:
-        vid_id = selected_song.get('id')
-        if vid_id:
-            video_url = f"https://www.youtube.com/watch?v={vid_id}"
-    if not video_url:
-        await callback.message.answer(get_text(user_id, 'no_url_found'))
-        return
+    
     processing_msg = await callback.message.answer(get_text(user_id, 'downloading'))
     audio_path = None
     try:
-        audio_path, title, uploader = await download_audio_from_url(video_url, user_id)
+        query = f"{selected_song['uploader']} - {selected_song['title']}"
+        audio_path, title, uploader = await download_full_song(query, user_id)
         if audio_path and os.path.exists(audio_path):
             audio_file = FSInputFile(audio_path)
             await callback.message.answer_audio(audio_file, title=title, performer=uploader, caption=f"🎵 {uploader} - {title}")
