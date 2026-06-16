@@ -14,6 +14,7 @@ import logging
 from dotenv import load_dotenv
 import database
 from aiogram import BaseMiddleware
+from aiohttp import web
 
 load_dotenv()
 
@@ -394,11 +395,28 @@ async def handle_text_search(message: Message):
             except:
                 pass
 
+# ========== DUMMY WEB SERVER (RENDER & UPTIMEROBOT UCHUN) ==========
+async def handle_ping(request):
+    return web.Response(text="Bot is alive and running!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"Dummy Web Server started on port {port} (UptimeRobot uchun)")
+
 # ========== ASOSIY ==========
 async def main():
     await database.init_db()
     os.makedirs('downloads', exist_ok=True)
     dp.include_router(router)
+    
+    # Render va UptimeRobot uchun veb-serverni ishga tushirish
+    await start_web_server()
     
     logger.info("Bot ishga tushdi!")
     await dp.start_polling(bot)
