@@ -1,14 +1,20 @@
 import asyncio
+import json
 import os
+import time
 import uuid
 import re
 import logging
 import shutil
-from html import escape
+from dataclasses import dataclass
+from html import escape, unescape
 from io import BytesIO
+from urllib.parse import quote, urlparse
+import aiohttp
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.enums import ChatAction
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, URLInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -30,6 +36,41 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNELS = os.getenv("CHANNELS", "").split(",") if os.getenv("CHANNELS") else []
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
+RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "20989956f0msh6800512a62e08eap18416ejsnae06767c25e8")
+
+REQUEST_LIMIT = 50
+RAPIDAPI_TIMEOUT = aiohttp.ClientTimeout(total=40, connect=12, sock_read=30)
+MEDIA_EXTENSIONS = ('.mp4', '.mov', '.mkv', '.webm', '.m3u8', '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.wav')
+AUDIO_EXTENSIONS = ('.mp3', '.m4a', '.aac', '.ogg', '.opus', '.wav')
+VIDEO_EXTENSIONS = ('.mp4', '.mov', '.mkv', '.webm', '.m3u8')
+IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp')
+SOCIAL_PAGE_DOMAINS = ('instagram.com', 'tiktok.com', 'youtube.com', 'youtu.be', 'facebook.com', 'fb.watch', 'twitter.com', 'x.com', 'soundcloud.com')
+CDN_HINTS = ('cdn', 'fbcdn', 'googlevideo', 'tiktokcdn', 'sndcdn', 'scdn', 'cloudfront', 'akamai', 'twimg', 'rapidapi')
+
+UNIVERSAL_APIS = [
+    {"name": "API_1 Auto Download All In One", "method": "POST", "url": "https://auto-download-all-in-one.p.rapidapi.com/v1/social/autolink", "host": "auto-download-all-in-one.p.rapidapi.com", "json": {"url": "{link}"}},
+    {"name": "API_2 Social Download All In One", "method": "POST", "url": "https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink", "host": "social-download-all-in-one.p.rapidapi.com", "json": {"url": "{link}"}},
+    {"name": "API_3 ZM API", "method": "GET", "url": "https://zm-api.p.rapidapi.com/v1/social/autolink?url={encoded_link}", "host": "zm-api.p.rapidapi.com"},
+    {"name": "API_4 All-In-One Media Downloader API", "method": "GET", "url": "https://all-in-one-media-downloader-api.p.rapidapi.com/download?url={encoded_link}", "host": "all-in-one-media-downloader-api.p.rapidapi.com"},
+    {"name": "API_5 All Media Downloader", "method": "GET", "url": "https://all-media-downloader4.p.rapidapi.com/api/youtube/download?id={id_or_link}", "host": "all-media-downloader4.p.rapidapi.com"},
+    {"name": "API_6 Full Downloader Social Media", "method": "GET", "url": "https://full-downloader-social-media.p.rapidapi.com/?url={encoded_link}", "host": "full-downloader-social-media.p.rapidapi.com"},
+    {"name": "API_7 Download All In One - Ultimate", "method": "GET", "url": "https://download-all-in-one-ultimate.p.rapidapi.com/autolink?url={encoded_link}", "host": "download-all-in-one-ultimate.p.rapidapi.com"},
+]
+
+INSTAGRAM_APIS = [
+    {"name": "API_INSTA_1 Reels Downloader", "method": "GET", "url": "https://instagram-downloader-download-instagram-videos-stories.p.rapidapi.com/unified/url?url={encoded_link}", "host": "instagram-downloader-download-instagram-videos-stories.p.rapidapi.com"},
+    {"name": "API_INSTA_2 Instagram Downloader Scraper", "method": "GET", "url": "https://instagram-downloader-scraper-reels-igtv-posts-stories.p.rapidapi.com/instagram/get_media?url={encoded_link}", "host": "instagram-downloader-scraper-reels-igtv-posts-stories.p.rapidapi.com"},
+]
+
+YOUTUBE_APIS = [
+    {"name": "API_YT_1 YouTube MP3 Audio Video Downloader", "method": "GET", "url": "https://youtube-mp3-audio-video-downloader.p.rapidapi.com/language_list/{video_id}?response_mode=default", "host": "youtube-mp3-audio-video-downloader.p.rapidapi.com", "requires_video_id": True},
+    {"name": "API_YT_2 YouTube Info & Download API", "method": "GET", "url": "https://youtube-info-download-api.p.rapidapi.com/ajax/download.php?format=mp3&url={encoded_link}", "host": "youtube-info-download-api.p.rapidapi.com"},
+    {"name": "API_YT_3 Social Media Video Downloader", "method": "GET", "url": "https://social-media-video-downloader.p.rapidapi.com/youtube/v3/video/details?videoId={video_id}", "host": "social-media-video-downloader.p.rapidapi.com", "requires_video_id": True},
+]
+
+SOUNDCLOUD_APIS = [
+    {"name": "API_SOUNDCLOUD SoundCloud Scraper", "method": "GET", "url": "https://soundcloud-scraper.p.rapidapi.com/v1/track/metadata?track={encoded_link}", "host": "soundcloud-scraper.p.rapidapi.com"},
+]
 
 # ========== TILLAR ==========
 TEXTS = {
@@ -62,6 +103,24 @@ TEXTS = {
         'search_results': "🔍 <b>{query}</b> uchun natijalar:\n\n",
         'select_number': "Yuklab olish uchun raqamni bosing 👆",
         'song_info': "🎵 <b>{artist}</b> — <b>{title}</b>\n🎼 <i>{snippet}</i>",
+        'sub_limit_reached': "📢 Siz 50 ta so'rovdan keyin botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:",
+        'btn_broadcast': "📢 Hammaga xabar yuborish",
+        'btn_confirm': "✅ Tasdiqlash",
+        'btn_cancel': "❌ Bekor qilish",
+        'admin_broadcast_prompt': "📢 Iltimos, yubormoqchi bo'lgan xabaringizni yuboring (matn, rasm, video va h.k.):",
+        'admin_broadcast_confirm': "📢 Xabarni barcha foydalanuvchilarga yuborishni tasdiqlaysizmi?",
+        'admin_broadcast_sent': "✅ Xabar {count} ta foydalanuvchiga yuborildi!",
+        'admin_broadcast_cancelled': "❌ Xabar yuborish bekor qilindi.",
+        'admin_broadcast_error': "❌ Xabar yuborishda xatolik yuz berdi.",
+        'sub_limit_reached': "📢 Siz 50 ta so'rovdan keyin botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:",
+        'btn_broadcast': "📢 Hammaga xabar yuborish",
+        'btn_confirm': "✅ Tasdiqlash",
+        'btn_cancel': "❌ Bekor qilish",
+        'admin_broadcast_prompt': "📢 Iltimos, yubormoqchi bo'lgan xabaringizni yuboring (matn, rasm, video va h.k.):",
+        'admin_broadcast_confirm': "📢 Xabarni barcha foydalanuvchilarga yuborishni tasdiqlaysizmi?",
+        'admin_broadcast_sent': "✅ Xabar {count} ta foydalanuvchiga yuborildi!",
+        'admin_broadcast_cancelled': "❌ Xabar yuborish bekor qilindi.",
+        'admin_broadcast_error': "❌ Xabar yuborishda xatolik yuz berdi.",
     },
     'ru': {
         'welcome': "👋 Здравствуйте {user}!\n\nДобро пожаловать в бот!\n\n🌐 Пожалуйста, выберите язык:",
@@ -92,6 +151,15 @@ TEXTS = {
         'search_results': "🔍 <b>{query}</b> — результаты:\n\n",
         'select_number': "Нажмите цифру для скачивания 👆",
         'song_info': "🎵 <b>{artist}</b> — <b>{title}</b>\n🎼 <i>{snippet}</i>",
+        'sub_limit_reached': "📢 После 50 запросов вам нужно подписаться на каналы для использования бота:",
+        'btn_broadcast': "📢 Рассылка всем",
+        'btn_confirm': "✅ Подтвердить",
+        'btn_cancel': "❌ Отмена",
+        'admin_broadcast_prompt': "📢 Отправьте сообщение, которое хотите разослать (текст, фото, видео и т.д.):",
+        'admin_broadcast_confirm': "📢 Подтвердите отправку сообщения всем пользователям?",
+        'admin_broadcast_sent': "✅ Сообщение отправлено {count} пользователям!",
+        'admin_broadcast_cancelled': "❌ Рассылка отменена.",
+        'admin_broadcast_error': "❌ Ошибка при рассылке.",
     },
     'en': {
         'welcome': "👋 Hello {user}!\n\nWelcome to the bot!\n\n🌐 Please select a language:",
@@ -122,6 +190,15 @@ TEXTS = {
         'search_results': "🔍 <b>{query}</b> results:\n\n",
         'select_number': "Tap a number to download 👆",
         'song_info': "🎵 <b>{artist}</b> — <b>{title}</b>\n🎼 <i>{snippet}</i>",
+        'sub_limit_reached': "📢 After 50 requests, you need to subscribe to the channels to use the bot:",
+        'btn_broadcast': "📢 Broadcast to all",
+        'btn_confirm': "✅ Confirm",
+        'btn_cancel': "❌ Cancel",
+        'admin_broadcast_prompt': "📢 Send the message you want to broadcast (text, photo, video, etc.):",
+        'admin_broadcast_confirm': "📢 Confirm sending this message to all users?",
+        'admin_broadcast_sent': "✅ Message sent to {count} users!",
+        'admin_broadcast_cancelled': "❌ Broadcast cancelled.",
+        'admin_broadcast_error': "❌ Error sending broadcast.",
     }
 }
 
@@ -129,6 +206,9 @@ TEXTS = {
 class UserState(StatesGroup):
     language = State()
     main_menu = State()
+
+class AdminState(StatesGroup):
+    waiting_broadcast = State()
 
 # ========== Bot ==========
 bot = Bot(token=BOT_TOKEN)
@@ -141,6 +221,8 @@ shazam = Shazam()
 user_languages_cache = {}
 url_cache = {}
 search_cache = {}
+subscription_cache = {}
+SUBSCRIPTION_CACHE_TTL = 300
 
 # ========== Middleware ==========
 class CacheMiddleware(BaseMiddleware):
@@ -169,6 +251,241 @@ def format_duration(seconds):
 
 def html_escape(value):
     return escape(str(value or ""), quote=False)
+
+@dataclass(slots=True)
+class MediaCandidate:
+    url: str
+    media_type: str = "document"
+    quality: str = ""
+    title: str = "Media"
+    source_api: str = ""
+    score: int = 0
+
+def first_url_from_text(text: str) -> str | None:
+    match = re.search(r'https?://[^\s<>"\']+', text or "", re.IGNORECASE)
+    return match.group(0).rstrip(').,;"\'') if match else None
+
+def extract_youtube_id(url: str) -> str | None:
+    patterns = [
+        r'(?:v=|/shorts/|/embed/|youtu\.be/)([A-Za-z0-9_-]{6,})',
+        r'youtube\.com/watch/([A-Za-z0-9_-]{6,})',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url, re.IGNORECASE)
+        if match:
+            return match.group(1).split('&')[0].split('?')[0]
+    return None
+
+def rapidapi_headers(host: str) -> dict:
+    return {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": host,
+        "Accept": "application/json,text/plain,*/*",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 RapidAPI-TelegramBot/1.0",
+    }
+
+def build_api_url(template: str, link: str) -> str:
+    video_id = extract_youtube_id(link) or link
+    return template.format(
+        link=link,
+        encoded_link=quote(link, safe=""),
+        id_or_link=quote(video_id if video_id else link, safe=""),
+        video_id=quote(video_id, safe=""),
+    )
+
+def build_api_json(payload: dict | None, link: str) -> dict | None:
+    if not payload:
+        return None
+    return {key: (value.format(link=link) if isinstance(value, str) else value) for key, value in payload.items()}
+
+def looks_like_direct_media_url(url: str, key_path: str = "") -> bool:
+    if not url or not url.lower().startswith(("http://", "https://")):
+        return False
+    lowered = unescape(url).lower()
+    parsed = urlparse(lowered)
+    path = parsed.path.split('?')[0]
+    host = parsed.netloc
+    if any(domain in host for domain in SOCIAL_PAGE_DOMAINS) and not any(ext in path for ext in MEDIA_EXTENSIONS):
+        return False
+    if any(ext in path for ext in MEDIA_EXTENSIONS):
+        return True
+    media_key_words = (
+        'download', 'downloadurl', 'download_url', 'video', 'videourl', 'video_url',
+        'audio', 'audiourl', 'audio_url', 'music', 'mp3', 'mp4', 'hd', 'sd', 'source',
+        'src', 'play', 'stream', 'media', 'nowatermark', 'no_watermark', 'url'
+    )
+    return any(word in key_path.lower() for word in media_key_words) and any(hint in lowered for hint in CDN_HINTS + MEDIA_EXTENSIONS)
+
+def detect_media_type(url: str, key_path: str = "", fallback_platform: str = "") -> str:
+    lowered = unescape(url).lower()
+    key = key_path.lower()
+    parsed_path = urlparse(lowered).path
+    if any(ext in parsed_path for ext in AUDIO_EXTENSIONS) or any(word in key for word in ('audio', 'music', 'mp3', 'sound')):
+        return "audio"
+    if any(ext in parsed_path for ext in VIDEO_EXTENSIONS) or any(word in key for word in ('video', 'mp4', 'hd', 'sd', 'play')):
+        return "video"
+    if any(ext in parsed_path for ext in IMAGE_EXTENSIONS) or any(word in key for word in ('image', 'thumb', 'photo', 'cover')):
+        return "photo"
+    if fallback_platform in ('youtube', 'soundcloud'):
+        return "audio"
+    return "video"
+
+def media_score(url: str, key_path: str, media_type: str, platform: str) -> int:
+    lowered = unescape(f"{url} {key_path}").lower()
+    score = 10
+    if media_type == "video":
+        score += 30
+    if media_type == "audio":
+        score += 35 if platform in ('youtube', 'soundcloud') else 15
+    if '.mp4' in lowered or '.mp3' in lowered:
+        score += 25
+    if any(word in lowered for word in ('hd', '1080', '720', 'high', 'best')):
+        score += 20
+    if any(word in lowered for word in ('no_watermark', 'nowatermark', 'without_watermark')):
+        score += 15
+    if any(word in lowered for word in ('watermark', 'thumb', 'thumbnail', 'cover', 'avatar')):
+        score -= 20
+    return score
+
+def extract_title_from_json(data) -> str:
+    title_keys = {'title', 'caption', 'description', 'name', 'fulltitle', 'track', 'song'}
+    stack = [data]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            for key, value in item.items():
+                if key.lower() in title_keys and isinstance(value, (str, int, float)) and str(value).strip():
+                    return str(value).strip()[:120]
+                if isinstance(value, (dict, list)):
+                    stack.append(value)
+        elif isinstance(item, list):
+            stack.extend(item)
+    return "Media"
+
+def extract_media_candidates(data, *, source_api: str, platform: str, original_url: str) -> list[MediaCandidate]:
+    candidates: list[MediaCandidate] = []
+    title = extract_title_from_json(data)
+
+    def walk(value, path="root"):
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                walk(nested, f"{path}.{key}")
+        elif isinstance(value, list):
+            for index, nested in enumerate(value):
+                walk(nested, f"{path}[{index}]")
+        elif isinstance(value, str):
+            raw = unescape(value.strip())
+            found_url = raw if raw.lower().startswith(("http://", "https://")) else first_url_from_text(raw)
+            if not found_url or found_url.rstrip('/') == original_url.rstrip('/'):
+                return
+            if not looks_like_direct_media_url(found_url, path):
+                return
+            media_type = detect_media_type(found_url, path, platform)
+            candidates.append(MediaCandidate(
+                url=found_url,
+                media_type=media_type,
+                title=title,
+                source_api=source_api,
+                quality=path,
+                score=media_score(found_url, path, media_type, platform),
+            ))
+
+    walk(data)
+    unique = {}
+    for candidate in candidates:
+        old = unique.get(candidate.url)
+        if old is None or candidate.score > old.score:
+            unique[candidate.url] = candidate
+    return sorted(unique.values(), key=lambda item: item.score, reverse=True)
+
+async def fetch_rapidapi_json(session: aiohttp.ClientSession, api: dict, link: str) -> dict | list | None:
+    if api.get("requires_video_id") and not extract_youtube_id(link):
+        return None
+    url = build_api_url(api["url"], link)
+    headers = rapidapi_headers(api["host"])
+    payload = build_api_json(api.get("json"), link)
+    try:
+        async with session.request(api["method"], url, headers=headers, json=payload, timeout=RAPIDAPI_TIMEOUT) as response:
+            text = await response.text(errors="ignore")
+            if response.status in (401, 403, 404, 408, 409, 425, 429) or response.status >= 500:
+                raise RuntimeError(f"HTTP {response.status}: {text[:180]}")
+            if response.status >= 400:
+                raise RuntimeError(f"HTTP {response.status}: {text[:180]}")
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                direct = first_url_from_text(text)
+                return {"url": direct} if direct else None
+    except Exception as exc:
+        logger.warning(f"RapidAPI fallback skipped [{api['name']}]: {exc}")
+        return None
+
+def route_apis_for_platform(platform: str) -> list[dict]:
+    if platform == 'instagram':
+        return INSTAGRAM_APIS + UNIVERSAL_APIS
+    if platform == 'youtube':
+        return YOUTUBE_APIS + UNIVERSAL_APIS
+    if platform == 'soundcloud':
+        return SOUNDCLOUD_APIS + UNIVERSAL_APIS
+    return UNIVERSAL_APIS
+
+async def resolve_media_via_rapidapi(link: str, platform: str) -> MediaCandidate | None:
+    async with aiohttp.ClientSession(timeout=RAPIDAPI_TIMEOUT) as session:
+        for api in route_apis_for_platform(platform):
+            try:
+                data = await fetch_rapidapi_json(session, api, link)
+                if not data:
+                    continue
+                candidates = extract_media_candidates(data, source_api=api['name'], platform=platform, original_url=link)
+                if candidates:
+                    best = candidates[0]
+                    logger.info(f"RapidAPI success: {api['name']} -> {best.media_type} score={best.score}")
+                    return best
+                logger.warning(f"RapidAPI no direct media URL: {api['name']}")
+            except Exception as exc:
+                logger.warning(f"RapidAPI parser error [{api['name']}]: {exc}")
+                continue
+    return None
+
+async def keep_upload_action(chat_id: int, action: ChatAction = ChatAction.UPLOAD_VIDEO):
+    while True:
+        try:
+            await bot.send_chat_action(chat_id=chat_id, action=action)
+            await asyncio.sleep(4)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            await asyncio.sleep(4)
+
+async def send_media_candidate(message: Message, candidate: MediaCandidate, user_id: int, platform: str):
+    media_id = str(uuid.uuid4())[:8]
+    url_cache[media_id] = {'url': candidate.url, 'duration': 0, 'platform': platform, 'source_url': candidate.url}
+    safe_title = (candidate.title or platform.title() or 'Media')[:64]
+    filename_ext = '.mp3' if candidate.media_type == 'audio' else '.mp4'
+    parsed_ext = os.path.splitext(urlparse(candidate.url).path)[1]
+    if parsed_ext and len(parsed_ext) <= 6:
+        filename_ext = parsed_ext
+    input_file = URLInputFile(candidate.url, filename=f"{safe_title}{filename_ext}")
+    caption = f"✅ <b>{html_escape(safe_title)}</b>"
+
+    if candidate.media_type == 'audio':
+        try:
+            await message.answer_audio(input_file, title=safe_title, performer=platform.title(), caption=caption, reply_markup=audio_only_keyboard(user_id, media_id), parse_mode="HTML")
+            return
+        except Exception as exc:
+            logger.error(f"RapidAPI send audio failed: {exc}")
+            await message.answer_document(URLInputFile(candidate.url, filename=f"{safe_title}{filename_ext}"), caption=caption, parse_mode="HTML")
+            return
+
+    try:
+        await message.answer_video(input_file, caption=caption, reply_markup=video_action_keyboard(user_id, media_id), parse_mode="HTML")
+    except Exception as exc:
+        logger.error(f"RapidAPI send video failed, sending document/link: {exc}")
+        try:
+            await message.answer_document(URLInputFile(candidate.url, filename=f"{safe_title}{filename_ext}"), caption=caption, reply_markup=video_action_keyboard(user_id, media_id), parse_mode="HTML")
+        except Exception:
+            await message.answer(f"✅ Yuklab olish havolasi:\n{candidate.url}", disable_web_page_preview=True)
 
 def ffmpeg_available():
     """FFmpeg bor-yo'qligini tekshiradi. MP3 konvertatsiya uchun kerak."""
@@ -254,6 +571,8 @@ def is_social_url(url):
         r'(instagram\.com)',
         r'(tiktok\.com)',
         r'(facebook\.com|fb\.com|fb\.watch)',
+        r'(twitter\.com|x\.com)',
+        r'(soundcloud\.com)',
         r'(pinterest\.com|pin\.it)',
         r'(snapchat\.com|snap\.com)',
     ]
@@ -286,9 +605,17 @@ def change_language_keyboard():
     ]])
 
 def main_menu_keyboard(user_id):
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=get_text(user_id, 'change_lang'), callback_data="open_change_lang")
-    ]])
+    buttons = []
+    if user_id in ADMIN_IDS:
+        buttons.append([
+            InlineKeyboardButton(text=get_text(user_id, 'btn_broadcast'), callback_data="admin_broadcast"),
+            InlineKeyboardButton(text=get_text(user_id, 'change_lang'), callback_data="open_change_lang"),
+        ])
+    else:
+        buttons.append([
+            InlineKeyboardButton(text=get_text(user_id, 'change_lang'), callback_data="open_change_lang"),
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def subscription_keyboard(user_id):
     buttons = []
@@ -307,6 +634,10 @@ def extract_platform(url):
         return 'tiktok'
     if re.search(r'(facebook\.com|fb\.com|fb\.watch)', url, re.IGNORECASE):
         return 'facebook'
+    if re.search(r'(twitter\.com|x\.com)', url, re.IGNORECASE):
+        return 'twitter'
+    if re.search(r'(soundcloud\.com)', url, re.IGNORECASE):
+        return 'soundcloud'
     if re.search(r'(pinterest\.com|pin\.it)', url, re.IGNORECASE):
         return 'pinterest'
     if re.search(r'(snapchat\.com|snap\.com)', url, re.IGNORECASE):
@@ -329,6 +660,10 @@ def audio_only_keyboard(user_id, video_id):
 async def check_subscription(user_id):
     if user_id in ADMIN_IDS:
         return True
+    now = time.time()
+    cached = subscription_cache.get(user_id)
+    if cached and cached[0] and (now - cached[1]) < SUBSCRIPTION_CACHE_TTL:
+        return True
     for channel in CHANNELS:
         try:
             channel_username = channel if channel.startswith('@') else f"@{channel}"
@@ -338,9 +673,21 @@ async def check_subscription(user_id):
         except Exception as e:
             logger.error(f"Subscription check error {channel}: {e}")
             continue
+    subscription_cache[user_id] = (True, now)
     return True
 
-# ========== yt-dlp uchun umumiy sozlamalar ==========
+async def check_request_limit(user_id):
+    if user_id in ADMIN_IDS:
+        return True
+    if await check_subscription(user_id):
+        return True
+    user = await database.get_user(user_id)
+    if user and user.request_count >= REQUEST_LIMIT:
+        return False
+    await database.increment_user_requests(user_id)
+    return True
+
+# ========== Obuna tekshirish ==========
 def get_ydl_cookies_opts():
     """Cookie fayllari mavjud bo'lsa qo'shish"""
     opts = {}
@@ -711,10 +1058,6 @@ async def cmd_start(message, state: FSMContext):
     user_id = message.from_user.id
     user_name = message.from_user.first_name
 
-    if not await check_subscription(user_id):
-        await message.answer(get_text(user_id, 'check_sub'), reply_markup=subscription_keyboard(user_id))
-        return
-
     db_user = await database.get_user(user_id)
     if db_user and db_user.language:
         user_languages_cache[user_id] = db_user.language
@@ -735,15 +1078,12 @@ async def choose_language(callback: CallbackQuery, state: FSMContext):
     user_name = callback.from_user.first_name
     await database.update_user_language(user_id, lang)
     user_languages_cache[user_id] = lang
-    if await check_subscription(user_id):
-        await callback.message.edit_text(
-            get_text(user_id, 'main_menu').format(user=user_name),
-            reply_markup=main_menu_keyboard(user_id),
-            parse_mode="HTML"
-        )
-        await state.set_state(UserState.main_menu)
-    else:
-        await callback.message.edit_text(get_text(user_id, 'check_sub'), reply_markup=subscription_keyboard(user_id))
+    await callback.message.edit_text(
+        get_text(user_id, 'main_menu').format(user=user_name),
+        reply_markup=main_menu_keyboard(user_id),
+        parse_mode="HTML"
+    )
+    await state.set_state(UserState.main_menu)
     await callback.answer()
 
 @router.callback_query(F.data == "open_change_lang")
@@ -790,7 +1130,7 @@ async def check_sub_callback(callback: CallbackQuery, state: FSMContext):
 @router.message(F.text & F.text.startswith(("http://", "https://")))
 async def handle_url(message: Message):
     user_id = message.from_user.id
-    if not await check_subscription(user_id):
+    if not await check_request_limit(user_id):
         await message.answer(get_text(user_id, 'check_sub'), reply_markup=subscription_keyboard(user_id))
         return
 
@@ -799,100 +1139,41 @@ async def handle_url(message: Message):
         await message.answer(get_text(user_id, 'unsupported_url'))
         return
 
-    platform = extract_platform(url)
+    platform = extract_platform(url) or 'universal'
     processing_msg = await message.answer(get_text(user_id, 'downloading'))
-    result_path = None
+    action = ChatAction.UPLOAD_DOCUMENT if platform in ('youtube', 'soundcloud') else ChatAction.UPLOAD_VIDEO
+    action_task = asyncio.create_task(keep_upload_action(message.chat.id, action))
 
     try:
-        # YouTube uchun faqat audio, boshqa platformalar uchun video
-        if platform == 'youtube':
-            result_path, title, _ = await download_video_from_url(url, user_id, audio_only=True)
-            
-            if result_path and result_path != 'TOO_LARGE' and os.path.exists(result_path):
-                audio_id = str(uuid.uuid4())[:8]
-                url_cache[audio_id] = {'url': url, 'duration': None, 'platform': 'youtube'}
-                await send_audio_result(
-                    message,
-                    result_path,
-                    title=title,
-                    performer='YouTube',
-                    caption=f"🎵 <b>{html_escape(title)}</b>",
-                    reply_markup=audio_only_keyboard(user_id, audio_id)
-                )
-                await processing_msg.delete()
-                try:
-                    os.remove(result_path)
-                except:
-                    pass
-            elif result_path == 'TOO_LARGE':
-                await processing_msg.edit_text(get_text(user_id, 'video_too_large'))
-            else:
-                await processing_msg.edit_text(get_text(user_id, 'invalid_url'))
-        else:
-            # Instagram, TikTok, Facebook, Pinterest, Snapchat uchun video
-            result_path, title, duration = await download_video_from_url(url, user_id, audio_only=False)
+        candidate = await resolve_media_via_rapidapi(url, platform)
+        if not candidate:
+            await processing_msg.edit_text("Hozircha yuklash imkoni bo'lmadi. Keyinroq qayta urining")
+            return
 
-            if result_path == 'TOO_LARGE':
-                await processing_msg.edit_text(get_text(user_id, 'video_too_large'))
-                return
-
-            if result_path and os.path.exists(result_path):
-                video_id = str(uuid.uuid4())[:8]
-                url_cache[video_id] = {'url': url, 'duration': duration, 'platform': platform}
-                video_file = FSInputFile(result_path)
-                try:
-                    await message.answer_video(
-                        video_file,
-                        caption=f"🎬 <b>{html_escape(title)}</b>",
-                        reply_markup=video_action_keyboard(user_id, video_id),
-                        parse_mode="HTML"
-                    )
-                    await processing_msg.delete()
-                except Exception as e:
-                    logger.error(f"Send video error: {e}")
-                    try:
-                        await processing_msg.edit_text(get_text(user_id, 'downloading_audio'))
-                        audio_path, a_title, a_uploader = await download_audio_from_url(url, user_id)
-                        if audio_path and os.path.exists(audio_path):
-                            audio_id = str(uuid.uuid4())[:8]
-                            url_cache[audio_id] = {'url': url, 'duration': duration, 'platform': platform}
-                            await send_audio_result(
-                                message,
-                                audio_path,
-                                title=a_title,
-                                performer=a_uploader,
-                                caption=f"🎵 <b>{html_escape(a_title)}</b>",
-                                reply_markup=video_action_keyboard(user_id, audio_id)
-                            )
-                            await processing_msg.delete()
-                            if os.path.exists(audio_path):
-                                os.remove(audio_path)
-                        else:
-                            await processing_msg.edit_text(get_text(user_id, 'invalid_url'))
-                    except Exception as e2:
-                        logger.error(f"Fallback audio error: {e2}")
-                        await processing_msg.edit_text(get_text(user_id, 'error'))
-            else:
-                await processing_msg.edit_text(get_text(user_id, 'invalid_url'))
+        await send_media_candidate(message, candidate, user_id, platform)
+        try:
+            await processing_msg.delete()
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"URL handler error: {e}")
         try:
-            await processing_msg.edit_text(get_text(user_id, 'error'))
+            await processing_msg.edit_text("Hozircha yuklash imkoni bo'lmadi. Keyinroq qayta urining")
         except Exception:
             pass
     finally:
-        if result_path and result_path != 'TOO_LARGE' and os.path.exists(str(result_path)):
-            try:
-                os.remove(result_path)
-            except Exception:
-                pass
+        action_task.cancel()
+        try:
+            await action_task
+        except asyncio.CancelledError:
+            pass
 
 # ========== Audioni yuklash ==========
 @router.callback_query(F.data.startswith("getaudio_"))
 async def process_audio_button(callback: CallbackQuery):
     user_id = callback.from_user.id
     video_id = callback.data[9:]
-    if not await check_subscription(user_id):
+    if not await check_request_limit(user_id):
         await callback.message.answer(get_text(user_id, 'check_sub'), reply_markup=subscription_keyboard(user_id))
         await callback.answer()
         return
@@ -957,7 +1238,7 @@ async def process_audio_button(callback: CallbackQuery):
 async def process_music_button(callback: CallbackQuery):
     user_id = callback.from_user.id
     video_id = callback.data[9:]
-    if not await check_subscription(user_id):
+    if not await check_request_limit(user_id):
         await callback.message.answer(get_text(user_id, 'check_sub'), reply_markup=subscription_keyboard(user_id))
         await callback.answer()
         return
@@ -1060,7 +1341,7 @@ async def process_audio_button_fallback(callback, cached_data, user_id, processi
 @router.message(F.voice | F.audio | F.video | F.video_note)
 async def handle_media(message: Message):
     user_id = message.from_user.id
-    if not await check_subscription(user_id):
+    if not await check_request_limit(user_id):
         await message.answer(get_text(user_id, 'check_sub'), reply_markup=subscription_keyboard(user_id))
         return
     processing_msg = await message.answer(get_text(user_id, 'recognizing'))
@@ -1098,7 +1379,7 @@ async def handle_media(message: Message):
 @router.message(F.text & ~F.text.startswith(("http://", "https://", "/")))
 async def handle_text_search(message: Message):
     user_id = message.from_user.id
-    if not await check_subscription(user_id):
+    if not await check_request_limit(user_id):
         await message.answer(get_text(user_id, 'check_sub'), reply_markup=subscription_keyboard(user_id))
         return
 
@@ -1172,7 +1453,7 @@ async def process_download_button(callback: CallbackQuery):
     if not data:
         await callback.answer(get_text(user_id, 'search_expired'), show_alert=True)
         return
-    if not await check_subscription(user_id):
+    if not await check_request_limit(user_id):
         await callback.message.answer(get_text(user_id, 'check_sub'), reply_markup=subscription_keyboard(user_id))
         await callback.answer()
         return
@@ -1221,6 +1502,154 @@ async def process_download_button(callback: CallbackQuery):
                 os.remove(audio_path)
             except Exception:
                 pass
+
+# ========== Broadcast funksiyalari ==========
+async def send_broadcast_message(user_id: int, content_type: str, content, text: str = None):
+    try:
+        if content_type == 'text':
+            await bot.send_message(user_id, text, parse_mode="HTML", disable_web_page_preview=True)
+        elif content_type == 'photo':
+            await bot.send_photo(user_id, content, caption=text, parse_mode="HTML")
+        elif content_type == 'video':
+            await bot.send_video(user_id, content, caption=text, parse_mode="HTML")
+        elif content_type == 'document':
+            await bot.send_document(user_id, content, caption=text, parse_mode="HTML")
+        elif content_type == 'animation':
+            await bot.send_animation(user_id, content, caption=text, parse_mode="HTML")
+        elif content_type == 'audio':
+            await bot.send_audio(user_id, content, caption=text, parse_mode="HTML")
+        elif content_type == 'voice':
+            await bot.send_voice(user_id, content, caption=text, parse_mode="HTML")
+        else:
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Broadcast error to {user_id}: {e}")
+        return False
+
+def broadcast_confirm_keyboard(user_id):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_text(user_id, 'btn_confirm'), callback_data="broadcast_confirm")],
+        [InlineKeyboardButton(text=get_text(user_id, 'btn_cancel'), callback_data="broadcast_cancel")]
+    ])
+
+@router.callback_query(F.data == "admin_broadcast")
+async def start_broadcast(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    if user_id not in ADMIN_IDS:
+        await callback.answer("❌ Sizda bu amalni bajarish uchun ruxsat yo'q.", show_alert=True)
+        return
+    await state.clear()
+    await callback.message.edit_text(get_text(user_id, 'admin_broadcast_prompt'))
+    await state.set_state(AdminState.waiting_broadcast)
+    await callback.answer()
+
+@router.message(AdminState.waiting_broadcast)
+async def receive_broadcast_content(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    if user_id not in ADMIN_IDS:
+        await state.clear()
+        return
+
+    content_type = None
+    content = None
+    text = None
+
+    if message.text:
+        content_type = 'text'
+        text = message.text
+    elif message.photo:
+        content_type = 'photo'
+        content = message.photo[-1].file_id
+        text = message.caption
+    elif message.video:
+        content_type = 'video'
+        content = message.video.file_id
+        text = message.caption
+    elif message.document:
+        content_type = 'document'
+        content = message.document.file_id
+        text = message.caption
+    elif message.animation:
+        content_type = 'animation'
+        content = message.animation.file_id
+        text = message.caption
+    elif message.audio:
+        content_type = 'audio'
+        content = message.audio.file_id
+        text = message.caption
+    elif message.voice:
+        content_type = 'voice'
+        content = message.voice.file_id
+        text = message.caption
+    else:
+        await message.answer(get_text(user_id, 'error'))
+        return
+
+    await state.update_data(content_type=content_type, content=content, text=text)
+
+    preview_text = get_text(user_id, 'admin_broadcast_confirm')
+    keyboard = broadcast_confirm_keyboard(user_id)
+
+    if content_type == 'text':
+        await message.answer(f"📢 <b>Oldindan ko'rinish:</b>\n\n{text}", reply_markup=keyboard, parse_mode="HTML")
+    elif content_type == 'photo':
+        await message.answer_photo(content, caption=preview_text, reply_markup=keyboard, parse_mode="HTML")
+    elif content_type == 'video':
+        await message.answer_video(content, caption=preview_text, reply_markup=keyboard, parse_mode="HTML")
+    elif content_type == 'document':
+        await message.answer_document(content, caption=preview_text, reply_markup=keyboard, parse_mode="HTML")
+    elif content_type == 'animation':
+        await message.answer_animation(content, caption=preview_text, reply_markup=keyboard, parse_mode="HTML")
+    elif content_type == 'audio':
+        await message.answer_audio(content, caption=preview_text, reply_markup=keyboard, parse_mode="HTML")
+    elif content_type == 'voice':
+        await message.answer_voice(content, caption=preview_text, reply_markup=keyboard, parse_mode="HTML")
+
+@router.callback_query(F.data == "broadcast_confirm")
+async def confirm_broadcast(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    if user_id not in ADMIN_IDS:
+        await callback.answer("❌ Ruxsat yo'q.", show_alert=True)
+        return
+
+    data = await state.get_data()
+    content_type = data.get('content_type')
+    content = data.get('content')
+    text = data.get('text')
+
+    await callback.message.edit_text("📢 Xabar yuborilmoqda... Iltimos kuting.")
+    await callback.answer()
+    await state.clear()
+
+    user_ids = await database.get_all_user_ids()
+    sent_count = 0
+    failed_count = 0
+
+    for uid in user_ids:
+        success = await send_broadcast_message(uid, content_type, content, text)
+        if success:
+            sent_count += 1
+        else:
+            failed_count += 1
+        await asyncio.sleep(0.05)
+
+    result_text = get_text(user_id, 'admin_broadcast_sent').format(count=sent_count)
+    if failed_count > 0:
+        result_text += f"\n⚠️ {failed_count} ta foydalanuvchiga yuborib bo'lmadi."
+    await callback.message.answer(result_text)
+
+@router.callback_query(F.data == "broadcast_cancel")
+async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    await state.clear()
+    await callback.message.edit_text(get_text(user_id, 'admin_broadcast_cancelled'))
+    await callback.answer()
+    await callback.message.answer(
+        get_text(user_id, 'main_menu').format(user=callback.from_user.first_name),
+        reply_markup=main_menu_keyboard(user_id),
+        parse_mode="HTML"
+    )
 
 # ========== DUMMY WEB SERVER ==========
 async def handle_ping(request):
