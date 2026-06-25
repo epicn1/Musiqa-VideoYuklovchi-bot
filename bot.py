@@ -3,6 +3,7 @@ import os
 import uuid
 import re
 import logging
+from html import escape
 from io import BytesIO
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandStart
@@ -44,14 +45,15 @@ TEXTS = {
         'song_not_found': "❌ Kechirasiz, qo'shiqni aniqlay olmadim.",
         'error': "❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.",
         'invalid_url': "❌ Noto'g'ri havola yuborildi yoki yuklab bo'lmadi.",
+        'unsupported_url': "❌ Faqat Instagram, Facebook, Pinterest, Snapchat, YouTube va TikTok havolalarini yuboring.",
         'link_expired': "❌ Havola eskirgan, videoni qaytadan yuboring.",
         'search_expired': "❌ Qidiruv natijalari eskirgan, boshqadan qidiring.",
         'no_results': "❌ Hech narsa topilmadi. Boshqacha yozib ko'ring.",
-        'main_menu': "👋 Assalomu alaykum {user}!\n\n🎵 Men musiqa botiman! Quyidagilarni qila olaman:\n\n🔗 <b>Havola yuboring</b> — YouTube, Instagram, TikTok, Facebook, Pinterest, Snapchat dan video yuklab beraman\n🎧 <b>Audioni yuklash</b> — videodagi ovozni yuklab beraman\n🎶 <b>Musiqasini yuklash</b> — videodagi orqa fon musiqasini Shazam orqali topib yuklab beraman\n🔍 <b>Qo'shiq nomi yoki ijrochi</b> yozib yuboring — topib yuklab beraman\n🎤 <b>Ovozli xabar</b> yuboring — qo'shiqni tanib topaman\n📹 <b>Video</b> yuboring — ichidagi qo'shiqni aniqlayman",
+        'main_menu': "👋 Assalomu alaykum {user}!\n\n🎵 Men musiqa botiman! Quyidagilarni qila olaman:\n\n🔗 <b>Havola yuboring</b> — YouTube'dan faqat qo'shiq/audio, Instagram, TikTok, Facebook, Pinterest, Snapchat'dan video yuklab beraman\n🎧 <b>Audioni yuklash</b> — videodagi ovozni to'liq uzunligida yuklab beraman\n🎶 <b>Musiqasini yuklash</b> — videodagi orqa fon musiqasini Shazam orqali topib yuklab beraman\n🔍 <b>Qo'shiq nomi yoki ijrochi</b> yozib yuboring — topib yuklab beraman\n🎤 <b>Ovozli xabar</b> yuboring — qo'shiqni tanib topaman\n📹 <b>Video</b> yuboring — ichidagi qo'shiqni aniqlayman",
         'change_lang': "🌐 Tilni o'zgartirish",
         'lang_changed': "✅ Til muvaffaqiyatli o'zgartirildi!",
-        'btn_audio': "🎧 Audio yuklash",
-        'btn_music': "🎶 Musiqasini topish",
+        'btn_audio': "🎧 Videodagi audioni yuklash",
+        'btn_music': "🎶 Videodagi musiqani yuklash",
         'no_url_found': "❌ Qo'shiqni yuklab bo'lmadi.",
         'video_too_large': "❌ Video hajmi juda katta (50 MB dan oshadi). Audio yuklashga urinib ko'ring.",
         'downloading_video': "⬇️ Video yuklanmoqda... Iltimos kuting.",
@@ -73,14 +75,15 @@ TEXTS = {
         'song_not_found': "❌ Извините, не удалось распознать песню.",
         'error': "❌ Произошла ошибка. Попробуйте снова.",
         'invalid_url': "❌ Неверная ссылка или не удалось скачать.",
+        'unsupported_url': "❌ Отправьте ссылку только из Instagram, Facebook, Pinterest, Snapchat, YouTube или TikTok.",
         'link_expired': "❌ Ссылка устарела, отправьте видео снова.",
         'search_expired': "❌ Результаты поиска устарели, ищите снова.",
         'no_results': "❌ Ничего не найдено. Попробуйте иначе.",
-        'main_menu': "👋 Здравствуйте {user}!\n\n🎵 Я музыкальный бот! Вот что я умею:\n\n🔗 <b>Отправьте ссылку</b> — YouTube, Instagram, TikTok, Facebook, Pinterest, Snapchat скачаю видео\n🎧 <b>Скачать аудио</b> — скачаю звук из видео\n🎶 <b>Скачать музыку</b> — найду фоновую музыку через Shazam и скачаю\n🔍 <b>Напишите название</b> песни или исполнителя — найду и скачаю\n🎤 <b>Голосовое</b> — распознаю песню\n📹 <b>Видео</b> — определю музыку",
+        'main_menu': "👋 Здравствуйте {user}!\n\n🎵 Я музыкальный бот! Вот что я умею:\n\n🔗 <b>Отправьте ссылку</b> — с YouTube скачаю только песню/аудио, с Instagram, TikTok, Facebook, Pinterest, Snapchat скачаю видео\n🎧 <b>Скачать аудио</b> — скачаю полный звук из видео\n🎶 <b>Скачать музыку</b> — найду фоновую музыку через Shazam и скачаю\n🔍 <b>Напишите название</b> песни или исполнителя — найду и скачаю\n🎤 <b>Голосовое</b> — распознаю песню\n📹 <b>Видео</b> — определю музыку",
         'change_lang': "🌐 Изменить язык",
         'lang_changed': "✅ Язык успешно изменён!",
-        'btn_audio': "🎧 Скачать аудио",
-        'btn_music': "🎶 Найти музыку",
+        'btn_audio': "🎧 Скачать аудио из видео",
+        'btn_music': "🎶 Скачать музыку из видео",
         'no_url_found': "❌ Не удалось скачать песню.",
         'video_too_large': "❌ Видео слишком большое (>50 МБ). Попробуйте скачать аудио.",
         'downloading_video': "⬇️ Загрузка видео... Пожалуйста подождите.",
@@ -102,14 +105,15 @@ TEXTS = {
         'song_not_found': "❌ Sorry, couldn't identify the song.",
         'error': "❌ An error occurred. Try again.",
         'invalid_url': "❌ Invalid link or couldn't download.",
+        'unsupported_url': "❌ Send only Instagram, Facebook, Pinterest, Snapchat, YouTube, or TikTok links.",
         'link_expired': "❌ Link expired, please send the video again.",
         'search_expired': "❌ Search results expired, search again.",
         'no_results': "❌ Nothing found. Try a different search.",
-        'main_menu': "👋 Hello {user}!\n\n🎵 I am a music bot! Here's what I can do:\n\n🔗 <b>Send a link</b> — YouTube, Instagram, TikTok, Facebook, Pinterest, Snapchat — I'll download\n🎧 <b>Download audio</b> — raw sound from video\n🎶 <b>Download music</b> — find background music via Shazam\n🔍 <b>Type a song name or artist</b> — I'll find and download it\n🎤 <b>Voice message</b> — I'll recognize the song\n📹 <b>Video</b> — I'll identify the music",
+        'main_menu': "👋 Hello {user}!\n\n🎵 I am a music bot! Here's what I can do:\n\n🔗 <b>Send a link</b> — from YouTube I download only song/audio, from Instagram, TikTok, Facebook, Pinterest, Snapchat I download video\n🎧 <b>Download audio</b> — full-length sound from video\n🎶 <b>Download music</b> — find background music via Shazam\n🔍 <b>Type a song name or artist</b> — I'll find and download it\n🎤 <b>Voice message</b> — I'll recognize the song\n📹 <b>Video</b> — I'll identify the music",
         'change_lang': "🌐 Change language",
         'lang_changed': "✅ Language changed successfully!",
-        'btn_audio': "🎧 Download audio",
-        'btn_music': "🎶 Find music",
+        'btn_audio': "🎧 Download video audio",
+        'btn_music': "🎶 Download music from video",
         'no_url_found': "❌ Couldn't download song.",
         'video_too_large': "❌ Video is too large (>50 MB). Try downloading audio instead.",
         'downloading_video': "⬇️ Downloading video... Please wait.",
@@ -162,6 +166,9 @@ def format_duration(seconds):
     secs = int(seconds) % 60
     return f"{minutes}:{secs:02d}"
 
+def html_escape(value):
+    return escape(str(value or ""), quote=False)
+
 def is_social_url(url):
     """Ijtimoiy tarmoq havolasini tekshirish"""
     patterns = [
@@ -171,16 +178,19 @@ def is_social_url(url):
         r'(facebook\.com|fb\.com|fb\.watch)',
         r'(pinterest\.com|pin\.it)',
         r'(snapchat\.com|snap\.com)',
-        r'(twitter\.com|x\.com)',
-        r'(vimeo\.com)',
-        r'(dailymotion\.com)',
-        r'(reddit\.com)',
-        r'(twitch\.tv)',
     ]
     for p in patterns:
         if re.search(p, url, re.IGNORECASE):
             return True
     return False
+
+def music_search_query(query):
+    """YouTube qidiruvini qo'shiq/audio natijalarga yo'naltirish."""
+    query = (query or "").strip()
+    music_words = r'\b(song|music|audio|official audio|lyrics|lyric|qo.?shiq|musiqa|песня|музыка)\b'
+    if re.search(music_words, query, re.IGNORECASE):
+        return query
+    return f"{query} song audio"
 
 # ========== Klaviaturalar ==========
 def language_keyboard():
@@ -209,11 +219,33 @@ def subscription_keyboard(user_id):
     buttons.append([InlineKeyboardButton(text=get_text(user_id, 'check_button'), callback_data="check_sub")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+def extract_platform(url):
+    """URL dan platformani aniqlash"""
+    if re.search(r'(youtube\.com|youtu\.be)', url, re.IGNORECASE):
+        return 'youtube'
+    if re.search(r'(instagram\.com)', url, re.IGNORECASE):
+        return 'instagram'
+    if re.search(r'(tiktok\.com)', url, re.IGNORECASE):
+        return 'tiktok'
+    if re.search(r'(facebook\.com|fb\.com|fb\.watch)', url, re.IGNORECASE):
+        return 'facebook'
+    if re.search(r'(pinterest\.com|pin\.it)', url, re.IGNORECASE):
+        return 'pinterest'
+    if re.search(r'(snapchat\.com|snap\.com)', url, re.IGNORECASE):
+        return 'snapchat'
+    return None
+
+# ========== Klaviaturalar ==========
 def video_action_keyboard(user_id, video_id):
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=get_text(user_id, 'btn_audio'), callback_data=f"getaudio_{video_id}"),
-        InlineKeyboardButton(text=get_text(user_id, 'btn_music'), callback_data=f"getmusic_{video_id}"),
-    ]])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_text(user_id, 'btn_music'), callback_data=f"getmusic_{video_id}")],
+        [InlineKeyboardButton(text=get_text(user_id, 'btn_audio'), callback_data=f"getaudio_{video_id}")],
+    ])
+
+def audio_only_keyboard(user_id, video_id):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_text(user_id, 'btn_audio'), callback_data=f"getaudio_{video_id}")],
+    ])
 
 # ========== Obuna tekshirish ==========
 async def check_subscription(user_id):
@@ -241,33 +273,126 @@ def get_ydl_cookies_opts():
     return opts
 
 # ========== Video yuklab olish ==========
-async def download_video_from_url(url, user_id):
-    """Ijtimoiy tarmoqdan video yuklab olish — Reels, Posts, Stories"""
+async def download_video_from_url(url, user_id, audio_only=False):
+    """Ijtimoiy tarmoqdan video/audio yuklab olish"""
     try:
         os.makedirs('downloads', exist_ok=True)
         temp_id = str(uuid.uuid4())[:8]
-        output_template = f'downloads/{user_id}_{temp_id}.%(ext)s'
+        is_youtube = extract_platform(url) == 'youtube'
+        
+        # YouTube uchun faqat audio
+        if is_youtube:
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': f'downloads/{user_id}_{temp_id}.%(ext)s',
+                'noplaylist': True,
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'quiet': True,
+                'no_warnings': True,
+                'socket_timeout': 30,
+                'retries': 3,
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                },
+            }
+        else:
+            # Boshqa platformalar uchun video
+            ydl_opts = {
+                'format': 'bestvideo[ext=mp4][filesize<45M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<45M]/best[filesize<45M]/best',
+                'outtmpl': f'downloads/{user_id}_{temp_id}.%(ext)s',
+                'noplaylist': True,
+                'quiet': True,
+                'no_warnings': True,
+                'merge_output_format': 'mp4',
+                'socket_timeout': 30,
+                'retries': 3,
+                'fragment_retries': 3,
+                'extractor_args': {
+                    'instagram': {'app_id': ''}
+                },
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                },
+            }
+        
+        if os.path.exists('cookies.txt'):
+            ydl_opts['cookiefile'] = 'cookies.txt'
 
+        def _download():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                if info is None:
+                    return None, None, None
+                if is_youtube:
+                    base = os.path.splitext(ydl.prepare_filename(info))[0]
+                    filename = base + '.mp3'
+                    if not os.path.exists(filename):
+                        for f in os.listdir('downloads'):
+                            if f.startswith(f'{user_id}_{temp_id}') and f.endswith('.mp3'):
+                                filename = os.path.join('downloads', f)
+                                break
+                    title = info.get('title') or info.get('fulltitle') or 'Audio'
+                    return filename, title, 'youtube'
+                else:
+                    if 'requested_downloads' in info and info['requested_downloads']:
+                        filename = info['requested_downloads'][0].get('filepath', '')
+                    else:
+                        filename = ydl.prepare_filename(info)
+                        if not os.path.exists(filename):
+                            base = os.path.splitext(filename)[0]
+                            for ext in ['.mp4', '.mkv', '.webm', '.mov']:
+                                if os.path.exists(base + ext):
+                                    filename = base + ext
+                                    break
+                    title = info.get('title') or info.get('fulltitle') or 'Video'
+                    duration = info.get('duration', 0)
+                    return filename, title, duration
+
+        result = await asyncio.to_thread(_download)
+        filename, title, extra = result
+        
+        if is_youtube and filename and os.path.exists(filename):
+            return filename, title, None
+            
+        if filename and os.path.exists(filename):
+            size = os.path.getsize(filename)
+            if size > 49 * 1024 * 1024:
+                os.remove(filename)
+                return 'TOO_LARGE', title, None
+            return filename, title, extra
+        return None, None, None
+    except Exception as e:
+        logger.error(f"yt-dlp video error: {e}")
+        return None, None, None
+
+# ========== Duration bo'yicha audio yuklab olish ==========
+async def download_audio_by_duration(url, duration_seconds, user_id):
+    """Videoning audio qismini duration bo'yicha yuklab olish (FFmpeg bilan kesish)"""
+    try:
+        os.makedirs('downloads', exist_ok=True)
+        temp_id = str(uuid.uuid4())[:8]
+        
+        # Avval video/audio yuklab olish
         ydl_opts = {
-            'format': 'bestvideo[ext=mp4][filesize<45M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<45M]/best[filesize<45M]/best',
-            'outtmpl': output_template,
+            'format': 'bestaudio/best',
+            'outtmpl': f'downloads/temp_{user_id}_{temp_id}.%(ext)s',
+            'noplaylist': True,
             'quiet': True,
             'no_warnings': True,
-            'merge_output_format': 'mp4',
             'socket_timeout': 30,
             'retries': 3,
-            'fragment_retries': 3,
-            # Har bir platforma uchun moslashtirilgan sozlamalar
-            'extractor_args': {
-                'instagram': {'app_id': ''}
-            },
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Accept-Language': 'en-US,en;q=0.9',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             },
         }
-        # Cookies fayli mavjud bo'lsa
         if os.path.exists('cookies.txt'):
             ydl_opts['cookiefile'] = 'cookies.txt'
 
@@ -276,32 +401,38 @@ async def download_video_from_url(url, user_id):
                 info = ydl.extract_info(url, download=True)
                 if info is None:
                     return None, None
-                # Fayl nomini aniqlash
-                if 'requested_downloads' in info and info['requested_downloads']:
-                    filename = info['requested_downloads'][0].get('filepath', '')
-                else:
-                    filename = ydl.prepare_filename(info)
-                    # Ext o'zgargan bo'lishi mumkin
-                    if not os.path.exists(filename):
-                        base = os.path.splitext(filename)[0]
-                        for ext in ['.mp4', '.mkv', '.webm', '.mov']:
-                            if os.path.exists(base + ext):
-                                filename = base + ext
-                                break
-                title = info.get('title') or info.get('fulltitle') or 'Video'
+                base = os.path.splitext(ydl.prepare_filename(info))[0]
+                filename = base
+                for f in os.listdir('downloads'):
+                    if f.startswith(f'temp_{user_id}_{temp_id}'):
+                        filename = os.path.join('downloads', f)
+                        ext = f.split('.')[-1] if '.' in f else 'mp3'
+                        break
+                title = info.get('title') or 'Audio'
                 return filename, title
 
-        filename, title = await asyncio.to_thread(_download)
-        if filename and os.path.exists(filename):
-            # Hajmini tekshirish (50 MB limit)
-            size = os.path.getsize(filename)
-            if size > 49 * 1024 * 1024:
-                os.remove(filename)
-                return 'TOO_LARGE', title
-            return filename, title
+        temp_audio_path, title = await asyncio.to_thread(_download)
+        
+        if temp_audio_path and os.path.exists(temp_audio_path):
+            # FFmpeg bilan duration bo'yicha kesish
+            output_path = f'downloads/{user_id}_{temp_id}.mp3'
+            import subprocess
+            try:
+                subprocess.run([
+                    'ffmpeg', '-y', '-i', temp_audio_path,
+                    '-t', str(duration_seconds),
+                    '-vn', '-acodec', 'libmp3lame', '-b:a', '192k',
+                    output_path
+                ], check=True, capture_output=True)
+                os.remove(temp_audio_path)
+                return output_path, title
+            except Exception as e:
+                logger.error(f"FFmpeg cut error: {e}")
+                # Kesish xatosa, asl audio ni qaytarish
+                return temp_audio_path, title
         return None, None
     except Exception as e:
-        logger.error(f"yt-dlp video error: {e}")
+        logger.error(f"Duration audio download error: {e}")
         return None, None
 
 # ========== Audio yuklab olish ==========
@@ -315,6 +446,7 @@ async def download_audio_from_url(url, user_id):
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': output_template,
+            'noplaylist': True,
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -359,12 +491,14 @@ async def download_audio_from_url(url, user_id):
 async def download_song_from_youtube(query, user_id):
     """YouTube qidiruvi orqali qo'shiq yuklab olish"""
     try:
+        query = music_search_query(query)
         os.makedirs('downloads', exist_ok=True)
         temp_id = str(uuid.uuid4())[:8]
 
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': f'downloads/{user_id}_{temp_id}.%(ext)s',
+            'noplaylist': True,
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -432,6 +566,7 @@ async def recognize_with_shazam(file_data: bytes):
 async def search_youtube_tracks(query, limit=10):
     """YouTube dan qidiruv natijalari (yuklab olmaydi)"""
     try:
+        query = music_search_query(query)
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
@@ -473,9 +608,9 @@ async def send_recognized_song(message, song_info, user_id, processing_msg):
     snippet = song_info.get('snippet', '')
 
     # Xabarni yangilash
-    found_text = get_text(user_id, 'song_found').format(artist=artist, title=title)
+    found_text = get_text(user_id, 'song_found').format(artist=html_escape(artist), title=html_escape(title))
     if snippet:
-        found_text += f"\n\n🎼 <i>{snippet}</i>"
+        found_text += f"\n\n🎼 <i>{html_escape(snippet)}</i>"
     found_text += f"\n\n{get_text(user_id, 'downloading_full')}"
 
     try:
@@ -489,9 +624,9 @@ async def send_recognized_song(message, song_info, user_id, processing_msg):
     if audio_path and os.path.exists(audio_path):
         try:
             audio_file = FSInputFile(audio_path)
-            caption = f"🎵 <b>{artist}</b> — <b>{title}</b>"
+            caption = f"🎵 <b>{html_escape(artist)}</b> — <b>{html_escape(title)}</b>"
             if snippet:
-                caption += f"\n🎼 <i>{snippet}</i>"
+                caption += f"\n🎼 <i>{html_escape(snippet)}</i>"
             await message.answer_audio(
                 audio_file,
                 title=title,
@@ -522,22 +657,21 @@ async def send_recognized_song(message, song_info, user_id, processing_msg):
 
 # ========== Search UI ==========
 def get_search_text(query, results, page, lang='uz'):
-    limit = 5
+    limit = 10
     start = (page - 1) * limit
     end = start + limit
     page_results = results[start:end]
-    text = TEXTS[lang].get('search_results', "🔍 <b>{query}</b>\n\n").format(query=query)
+    text = f"<b>{html_escape(query)}</b>\n\n"
     for i, res in enumerate(page_results):
         duration = format_duration(res.get('duration'))
-        title = res.get('title', 'Unknown')
-        uploader = res.get('uploader', '')
-        dur_text = f" ⏱ <b>{duration}</b>" if duration else ""
+        title = html_escape(res.get('title', 'Unknown'))
+        dur_text = f" <b>{html_escape(duration)}</b>" if duration else ""
         num = start + i + 1
-        text += f"<b>{num}.</b> 🎤 {uploader}\n    🎵 {title}{dur_text}\n\n"
+        text += f"<b>{num}.</b> <i>{title}</i>{dur_text}\n"
     return text
 
 def get_search_keyboard(page, total_results, search_id):
-    limit = 5
+    limit = 10
     total_pages = (total_results + limit - 1) // limit
     buttons = []
     start_index = (page - 1) * limit
@@ -545,19 +679,18 @@ def get_search_keyboard(page, total_results, search_id):
     for i in range(min(limit, total_results - start_index)):
         absolute_index = start_index + i
         row.append(InlineKeyboardButton(text=str(absolute_index + 1), callback_data=f"dl_{search_id}_{absolute_index}"))
+        if len(row) == 5:
+            buttons.append(row)
+            row = []
     if row:
         buttons.append(row)
     nav_buttons = []
     if page > 1:
-        nav_buttons.append(InlineKeyboardButton(text="⬅️", callback_data=f"page_{search_id}_{page-1}"))
-    else:
-        nav_buttons.append(InlineKeyboardButton(text="⏹", callback_data="ignore"))
-    nav_buttons.append(InlineKeyboardButton(text="❌ Yopish", callback_data=f"close_{search_id}"))
+        nav_buttons.append(InlineKeyboardButton(text="\u2b05\ufe0f", callback_data=f"page_{search_id}_{page-1}"))
     if page < total_pages:
-        nav_buttons.append(InlineKeyboardButton(text="➡️", callback_data=f"page_{search_id}_{page+1}"))
-    else:
-        nav_buttons.append(InlineKeyboardButton(text="⏹", callback_data="ignore"))
-    buttons.append(nav_buttons)
+        nav_buttons.append(InlineKeyboardButton(text="\u27a1\ufe0f", callback_data=f"page_{search_id}_{page+1}"))
+    if nav_buttons:
+        buttons.append(nav_buttons)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # ========== START ==========
@@ -650,56 +783,87 @@ async def handle_url(message: Message):
         return
 
     url = message.text.strip()
-    processing_msg = await message.answer(get_text(user_id, 'downloading_video'))
-    video_path = None
+    if not is_social_url(url):
+        await message.answer(get_text(user_id, 'unsupported_url'))
+        return
+
+    platform = extract_platform(url)
+    processing_msg = await message.answer(get_text(user_id, 'downloading'))
+    result_path = None
 
     try:
-        video_path, title = await download_video_from_url(url, user_id)
-
-        if video_path == 'TOO_LARGE':
-            await processing_msg.edit_text(get_text(user_id, 'video_too_large'))
-            return
-
-        if video_path and os.path.exists(video_path):
-            video_id = str(uuid.uuid4())[:8]
-            url_cache[video_id] = url
-            video_file = FSInputFile(video_path)
-            try:
-                await message.answer_video(
-                    video_file,
-                    caption=f"🎬 <b>{title}</b>",
-                    reply_markup=video_action_keyboard(user_id, video_id),
+        # YouTube uchun faqat audio, boshqa platformalar uchun video
+        if platform == 'youtube':
+            result_path, title, _ = await download_video_from_url(url, user_id, audio_only=True)
+            
+            if result_path and result_path != 'TOO_LARGE' and os.path.exists(result_path):
+                audio_id = str(uuid.uuid4())[:8]
+                url_cache[audio_id] = {'url': url, 'duration': None, 'platform': 'youtube'}
+                audio_file = FSInputFile(result_path)
+                await message.answer_audio(
+                    audio_file,
+                    title=title,
+                    performer='YouTube',
+                    caption=f"🎵 <b>{html_escape(title)}</b>",
+                    reply_markup=audio_only_keyboard(user_id, audio_id),
                     parse_mode="HTML"
                 )
                 await processing_msg.delete()
-            except Exception as e:
-                logger.error(f"Send video error: {e}")
-                # Video yuborib bo'lmasa audio sifatida yuborish
                 try:
-                    await processing_msg.edit_text(get_text(user_id, 'downloading_audio'))
-                    audio_path, a_title, a_uploader = await download_audio_from_url(url, user_id)
-                    if audio_path and os.path.exists(audio_path):
-                        audio_id = str(uuid.uuid4())[:8]
-                        url_cache[audio_id] = url
-                        af = FSInputFile(audio_path)
-                        await message.answer_audio(
-                            af,
-                            title=a_title,
-                            performer=a_uploader,
-                            caption=f"🎵 <b>{a_title}</b>",
-                            reply_markup=video_action_keyboard(user_id, audio_id),
-                            parse_mode="HTML"
-                        )
-                        await processing_msg.delete()
-                        if os.path.exists(audio_path):
-                            os.remove(audio_path)
-                    else:
-                        await processing_msg.edit_text(get_text(user_id, 'invalid_url'))
-                except Exception as e2:
-                    logger.error(f"Fallback audio error: {e2}")
-                    await processing_msg.edit_text(get_text(user_id, 'error'))
+                    os.remove(result_path)
+                except:
+                    pass
+            elif result_path == 'TOO_LARGE':
+                await processing_msg.edit_text(get_text(user_id, 'video_too_large'))
+            else:
+                await processing_msg.edit_text(get_text(user_id, 'invalid_url'))
         else:
-            await processing_msg.edit_text(get_text(user_id, 'invalid_url'))
+            # Instagram, TikTok, Facebook, Pinterest, Snapchat uchun video
+            result_path, title, duration = await download_video_from_url(url, user_id, audio_only=False)
+
+            if result_path == 'TOO_LARGE':
+                await processing_msg.edit_text(get_text(user_id, 'video_too_large'))
+                return
+
+            if result_path and os.path.exists(result_path):
+                video_id = str(uuid.uuid4())[:8]
+                url_cache[video_id] = {'url': url, 'duration': duration, 'platform': platform}
+                video_file = FSInputFile(result_path)
+                try:
+                    await message.answer_video(
+                        video_file,
+                        caption=f"🎬 <b>{html_escape(title)}</b>",
+                        reply_markup=video_action_keyboard(user_id, video_id),
+                        parse_mode="HTML"
+                    )
+                    await processing_msg.delete()
+                except Exception as e:
+                    logger.error(f"Send video error: {e}")
+                    try:
+                        await processing_msg.edit_text(get_text(user_id, 'downloading_audio'))
+                        audio_path, a_title, a_uploader = await download_audio_from_url(url, user_id)
+                        if audio_path and os.path.exists(audio_path):
+                            audio_id = str(uuid.uuid4())[:8]
+                            url_cache[audio_id] = {'url': url, 'duration': duration, 'platform': platform}
+                            af = FSInputFile(audio_path)
+                            await message.answer_audio(
+                                af,
+                                title=a_title,
+                                performer=a_uploader,
+                                caption=f"🎵 <b>{html_escape(a_title)}</b>",
+                                reply_markup=video_action_keyboard(user_id, audio_id),
+                                parse_mode="HTML"
+                            )
+                            await processing_msg.delete()
+                            if os.path.exists(audio_path):
+                                os.remove(audio_path)
+                        else:
+                            await processing_msg.edit_text(get_text(user_id, 'invalid_url'))
+                    except Exception as e2:
+                        logger.error(f"Fallback audio error: {e2}")
+                        await processing_msg.edit_text(get_text(user_id, 'error'))
+            else:
+                await processing_msg.edit_text(get_text(user_id, 'invalid_url'))
     except Exception as e:
         logger.error(f"URL handler error: {e}")
         try:
@@ -707,9 +871,9 @@ async def handle_url(message: Message):
         except Exception:
             pass
     finally:
-        if video_path and video_path != 'TOO_LARGE' and os.path.exists(str(video_path)):
+        if result_path and result_path != 'TOO_LARGE' and os.path.exists(str(result_path)):
             try:
-                os.remove(video_path)
+                os.remove(result_path)
             except Exception:
                 pass
 
@@ -722,27 +886,54 @@ async def process_audio_button(callback: CallbackQuery):
         await callback.message.answer(get_text(user_id, 'check_sub'), reply_markup=subscription_keyboard(user_id))
         await callback.answer()
         return
-    url = url_cache.get(video_id)
-    if not url:
+    cached_data = url_cache.get(video_id)
+    if not cached_data:
         await callback.answer(get_text(user_id, 'link_expired'), show_alert=True)
         return
+    url = cached_data.get('url') or cached_data
+    platform = cached_data.get('platform', '') if isinstance(cached_data, dict) else ''
+    duration = cached_data.get('duration', 0) if isinstance(cached_data, dict) else 0
     await callback.answer()
     processing_msg = await callback.message.answer(get_text(user_id, 'downloading_audio'))
     audio_path = None
     try:
-        audio_path, title, uploader = await download_audio_from_url(url, user_id)
-        if audio_path and os.path.exists(audio_path):
-            audio_file = FSInputFile(audio_path)
-            await callback.message.answer_audio(
-                audio_file,
-                title=title,
-                performer=uploader,
-                caption=f"🎧 <b>{uploader}</b> — {title}",
-                parse_mode="HTML"
-            )
+        if platform == 'youtube' or duration == 0:
+            audio_path, title, uploader = await download_audio_from_url(url, user_id)
+            if audio_path and os.path.exists(audio_path):
+                audio_file = FSInputFile(audio_path)
+                await callback.message.answer_audio(
+                    audio_file,
+                    title=title,
+                    performer=uploader,
+                    caption=f"🎧 <b>{html_escape(uploader)}</b> — {html_escape(title)}",
+                    parse_mode="HTML"
+                )
+        else:
+            # Boshqa platformalar uchun duration bo'yicha audio yuklash
+            audio_path, title = await download_audio_by_duration(url, duration, user_id)
+            if audio_path and os.path.exists(audio_path):
+                mins = int(duration) // 60
+                secs = int(duration) % 60
+                dur_str = f"{mins}:{secs:02d}"
+                uploader = platform.title() if platform else 'Video'
+                
+                audio_file = FSInputFile(audio_path)
+                await callback.message.answer_audio(
+                    audio_file,
+                    title=title,
+                    performer=uploader,
+                    caption=f"🎵 <b>{html_escape(title)}</b> <i>({html_escape(dur_str)})</i>",
+                    parse_mode="HTML"
+                )
+        if audio_path:
             try:
                 await processing_msg.delete()
             except Exception:
+                pass
+            try:
+                if os.path.exists(str(audio_path)):
+                    os.remove(audio_path)
+            except:
                 pass
         else:
             await processing_msg.edit_text(get_text(user_id, 'error'))
@@ -752,12 +943,6 @@ async def process_audio_button(callback: CallbackQuery):
             await processing_msg.edit_text(get_text(user_id, 'error'))
         except Exception:
             pass
-    finally:
-        if audio_path and os.path.exists(str(audio_path)):
-            try:
-                os.remove(audio_path)
-            except Exception:
-                pass
 
 # ========== Musiqasini yuklash (Shazam + YouTube) ==========
 @router.callback_query(F.data.startswith("getmusic_"))
@@ -768,10 +953,11 @@ async def process_music_button(callback: CallbackQuery):
         await callback.message.answer(get_text(user_id, 'check_sub'), reply_markup=subscription_keyboard(user_id))
         await callback.answer()
         return
-    url = url_cache.get(video_id)
-    if not url:
+    cached_data = url_cache.get(video_id)
+    if not cached_data:
         await callback.answer(get_text(user_id, 'link_expired'), show_alert=True)
         return
+    url = cached_data.get('url') or cached_data
     await callback.answer()
     processing_msg = await callback.message.answer(get_text(user_id, 'recognizing'))
     audio_path = None
@@ -780,7 +966,6 @@ async def process_music_button(callback: CallbackQuery):
         if audio_path and os.path.exists(audio_path):
             with open(audio_path, 'rb') as f:
                 file_data = f.read()
-            # Shazam bilan aniqlash
             song_info = await recognize_with_shazam(file_data)
             if audio_path and os.path.exists(audio_path):
                 os.remove(audio_path)
@@ -788,11 +973,8 @@ async def process_music_button(callback: CallbackQuery):
             if song_info:
                 await send_recognized_song(callback.message, song_info, user_id, processing_msg)
             else:
-                # Shazam topa olmadi — xabar berish
-                try:
-                    await processing_msg.edit_text(get_text(user_id, 'song_not_found'))
-                except Exception:
-                    pass
+                # Shazam topa olmadi — videodagi audio (duration bo'yicha) yuklash
+                await process_audio_button_fallback(callback, cached_data, user_id, processing_msg)
         else:
             await processing_msg.edit_text(get_text(user_id, 'error'))
     except Exception as e:
@@ -807,6 +989,66 @@ async def process_music_button(callback: CallbackQuery):
                 os.remove(audio_path)
             except Exception:
                 pass
+
+async def process_audio_button_fallback(callback, cached_data, user_id, processing_msg):
+    """Shazam topa olmasa, videodagi audio yuklab beradi (duration bo'yicha)"""
+    try:
+        url = cached_data['url']
+        platform = cached_data.get('platform', '')
+        duration = cached_data.get('duration', 0)
+        
+        await processing_msg.edit_text(get_text(user_id, 'downloading_audio'))
+        
+        if duration and duration > 0:
+            # Duration bo'yicha audio yuklash
+            audio_path, title = await download_audio_by_duration(url, duration, user_id)
+            if audio_path and os.path.exists(audio_path):
+                # Duration ni formatlash
+                mins = int(duration) // 60
+                secs = int(duration) % 60
+                dur_str = f"{mins}:{secs:02d}"
+                uploader = platform.title() if platform else 'Video'
+                
+                audio_file = FSInputFile(audio_path)
+                await callback.message.answer_audio(
+                    audio_file,
+                    title=title,
+                    performer=uploader,
+                    caption=f"🎵 <b>{html_escape(title)}</b> <i>({html_escape(dur_str)})</i>",
+                    parse_mode="HTML"
+                )
+                try:
+                    os.remove(audio_path)
+                except:
+                    pass
+                return
+        
+        # Duration bo'lmasa oddiy audio yuklash
+        audio_path, title, uploader = await download_audio_from_url(url, user_id)
+        if audio_path and os.path.exists(audio_path):
+            audio_file = FSInputFile(audio_path)
+            await callback.message.answer_audio(
+                audio_file,
+                title=title,
+                performer=uploader,
+                caption=f"🎧 <b>{html_escape(uploader)}</b> — {html_escape(title)}",
+                parse_mode="HTML"
+            )
+            try:
+                os.remove(audio_path)
+            except:
+                pass
+        else:
+            try:
+                await processing_msg.edit_text(get_text(user_id, 'error'))
+            except:
+                pass
+    except Exception as e:
+        logger.error(f"Fallback audio error: {e}")
+        try:
+            await processing_msg.edit_text(get_text(user_id, 'error'))
+        except Exception:
+            pass
 
 # ========== Ovozli / Audio / Video fayllar ==========
 @router.message(F.voice | F.audio | F.video | F.video_note)
@@ -870,6 +1112,11 @@ async def handle_text_search(message: Message):
             await processing_msg.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Edit search text error: {e}")
+            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+            try:
+                await processing_msg.delete()
+            except Exception:
+                pass
     else:
         await processing_msg.edit_text(get_text(user_id, 'no_results'))
 
@@ -948,7 +1195,7 @@ async def process_download_button(callback: CallbackQuery):
                 audio_file,
                 title=display_title,
                 performer=display_artist,
-                caption=f"🎵 <b>{display_artist}</b> — {display_title}",
+                caption=f"🎵 <b>{html_escape(display_artist)}</b> — {html_escape(display_title)}",
                 parse_mode="HTML"
             )
             try:
