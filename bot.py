@@ -524,6 +524,7 @@ def audio_download_opts(output_template):
         'no_warnings': True,
         'socket_timeout': 30,
         'retries': 3,
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -704,30 +705,25 @@ async def download_video_from_url(url, user_id, audio_only=False):
         os.makedirs('downloads', exist_ok=True)
         temp_id = str(uuid.uuid4())[:8]
         is_youtube = extract_platform(url) == 'youtube'
-        
-        # YouTube uchun faqat audio
-        if is_youtube:
-            ydl_opts = audio_download_opts(f'downloads/{user_id}_{temp_id}.%(ext)s')
-        else:
-            # Boshqa platformalar uchun video
-            ydl_opts = {
-                # Instagram/TikTok/Facebook kabi servislar ko'pincha bitta tayyor mp4 beradi.
-                # Qattiq filesize yoki bestvideo+bestaudio shartlari ayrim linklarda format topilmasligiga olib keladi.
-                'format': 'best[ext=mp4]/best',
-                'outtmpl': f'downloads/{user_id}_{temp_id}.%(ext)s',
-                'noplaylist': True,
-                'quiet': True,
-                'no_warnings': True,
-                'socket_timeout': 30,
-                'retries': 3,
-                'fragment_retries': 3,
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Referer': 'https://www.instagram.com/',
-                },
-            }
+        ydl_opts = {
+            # Instagram/TikTok/Facebook kabi servislar ko'pincha bitta tayyor mp4 beradi.
+            # Snapchat, Pinterest, YouTube esa alohida video va audio streamlarga ega bo'lishi mumkin.
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': f'downloads/{user_id}_{temp_id}.%(ext)s',
+            'noplaylist': True,
+            'quiet': True,
+            'no_warnings': True,
+            'socket_timeout': 30,
+            'retries': 3,
+            'fragment_retries': 3,
+            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Referer': 'https://www.instagram.com/',
+            },
+        }
         
         if os.path.exists('cookies.txt'):
             ydl_opts['cookiefile'] = 'cookies.txt'
@@ -737,35 +733,25 @@ async def download_video_from_url(url, user_id, audio_only=False):
                 info = ydl.extract_info(url, download=True)
                 if info is None:
                     return None, None, None
-                if is_youtube:
-                    base = os.path.splitext(ydl.prepare_filename(info))[0]
-                    filename = base + '.mp3' if ffmpeg_available() else ydl.prepare_filename(info)
-                    if not os.path.exists(filename):
-                        filename = find_downloaded_file(f'{user_id}_{temp_id}', ['.mp3', '.m4a', '.webm', '.opus', '.aac'])
-                    title = info.get('title') or info.get('fulltitle') or 'Audio'
-                    return filename, title, 'youtube'
+                
+                if 'requested_downloads' in info and info['requested_downloads']:
+                    filename = info['requested_downloads'][0].get('filepath', '')
                 else:
-                    if 'requested_downloads' in info and info['requested_downloads']:
-                        filename = info['requested_downloads'][0].get('filepath', '')
-                    else:
-                        filename = ydl.prepare_filename(info)
-                        if not os.path.exists(filename):
-                            base = os.path.splitext(filename)[0]
-                            for ext in ['.mp4', '.mkv', '.webm', '.mov']:
-                                if os.path.exists(base + ext):
-                                    filename = base + ext
-                                    break
-                        if not os.path.exists(filename):
-                            filename = find_downloaded_file(f'{user_id}_{temp_id}', ['.mp4', '.mov', '.webm', '.mkv'])
-                    title = info.get('title') or info.get('fulltitle') or 'Video'
-                    duration = info.get('duration', 0)
-                    return filename, title, duration
+                    filename = ydl.prepare_filename(info)
+                    if not os.path.exists(filename):
+                        base = os.path.splitext(filename)[0]
+                        for ext in ['.mp4', '.mkv', '.webm', '.mov']:
+                            if os.path.exists(base + ext):
+                                filename = base + ext
+                                break
+                    if not os.path.exists(filename):
+                        filename = find_downloaded_file(f'{user_id}_{temp_id}', ['.mp4', '.mov', '.webm', '.mkv'])
+                title = info.get('title') or info.get('fulltitle') or 'Video'
+                duration = info.get('duration', 0)
+                return filename, title, duration
 
         result = await asyncio.to_thread(_download)
         filename, title, extra = result
-        
-        if is_youtube and filename and os.path.exists(filename):
-            return filename, title, None
             
         if filename and os.path.exists(filename):
             size = os.path.getsize(filename)
@@ -794,6 +780,7 @@ async def download_audio_by_duration(url, duration_seconds, user_id):
             'no_warnings': True,
             'socket_timeout': 30,
             'retries': 3,
+            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Accept-Language': 'en-US,en;q=0.9',
@@ -938,6 +925,7 @@ async def search_youtube_tracks(query, limit=10):
             'no_warnings': True,
             'extract_flat': True,
             'socket_timeout': 20,
+            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
         }
 
         def _search():
