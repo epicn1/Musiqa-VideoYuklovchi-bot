@@ -18,10 +18,7 @@ def audio_download_opts(output_template):
         'no_warnings': False,
         'socket_timeout': 30,
         'retries': 3,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-        },
+        'extractor_args': {'youtube': {'player_client': ['web_creator', 'android_vr']}}
     }
     if ffmpeg_available():
         opts['format'] = 'bestaudio/best'

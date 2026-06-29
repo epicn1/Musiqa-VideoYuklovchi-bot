@@ -211,7 +211,14 @@ class AdminState(StatesGroup):
     waiting_broadcast = State()
 
 # ========== Bot ==========
+import socket
+from aiogram.client.session.aiohttp import AiohttpSession
+import aiohttp
+
+# Create a dummy bot globally. We will overwrite it in main() with the custom session.
+# This prevents "RuntimeError: no running event loop" at module load time.
 bot = Bot(token=BOT_TOKEN)
+
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 router = Router()
@@ -524,7 +531,7 @@ def audio_download_opts(output_template):
         'no_warnings': True,
         'socket_timeout': 30,
         'retries': 3,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'extractor_args': {'youtube': {'player_client': ['web_creator', 'android_vr']}},
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -716,7 +723,7 @@ async def download_video_from_url(url, user_id, audio_only=False):
             'socket_timeout': 30,
             'retries': 3,
             'fragment_retries': 3,
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+            'extractor_args': {'youtube': {'player_client': ['web_creator', 'android_vr']}},
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept-Language': 'en-US,en;q=0.9',
@@ -780,7 +787,7 @@ async def download_audio_by_duration(url, duration_seconds, user_id):
             'no_warnings': True,
             'socket_timeout': 30,
             'retries': 3,
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+            'extractor_args': {'youtube': {'player_client': ['web_creator', 'android_vr']}},
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Accept-Language': 'en-US,en;q=0.9',
@@ -925,7 +932,7 @@ async def search_youtube_tracks(query, limit=10):
             'no_warnings': True,
             'extract_flat': True,
             'socket_timeout': 20,
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+            'extractor_args': {'youtube': {'player_client': ['web_creator', 'android_vr']}},
         }
 
         def _search():
@@ -1648,18 +1655,25 @@ async def start_web_server():
     app.router.add_get('/', handle_ping)
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.getenv("PORT", 8080))
+    port = int(os.getenv("PORT", 7860))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     logger.info(f"Web Server started on port {port}")
 
 # ========== ASOSIY ==========
 async def main():
+    global bot
+    # Force IPv4 (socket.AF_INET) to prevent SSL handshake timeouts on Hugging Face Spaces
+    connector = aiohttp.TCPConnector(family=socket.AF_INET)
+    session = AiohttpSession(connector=connector)
+    bot = Bot(token=BOT_TOKEN, session=session)
+
     await database.init_db()
     os.makedirs('downloads', exist_ok=True)
     dp.include_router(router)
     await start_web_server()
     logger.info("Bot ishga tushdi!")
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
